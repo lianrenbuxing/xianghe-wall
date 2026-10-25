@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>祥和表白墙 · 匿名表白</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body data-theme="light">
+<canvas id="hearts" aria-hidden="true"></canvas>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <div class="brand">
+      <div class="logo">祥</div>
+      <div>
+        <h1>祥和表白墙</h1>
+        <p class="tagline">把不敢说出口的心动，留在这里 ❤</p >
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="stat" id="statBox">…</div>
+      <button class="icon-btn" id="themeBtn" title="切换主题">🌙</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card composer">
+    <div class="row-top">
+      <input id="nickInput" maxlength="16" placeholder="昵称（留空 = 随机匿名）" />
+      <span class="hint">🔒 全程匿名 · 请文明发言</span>
+    </div>
+
+    <div class="tags" id="tagList"></div>
+
+    <textarea id="contentInput" maxlength="500"
+      placeholder="想对 TA 说点什么？匿名表白、寻人、祝福、吐槽都可以…"></textarea>
+
+    <div class="preview" id="preview"></div>
+
+    <div class="composer-bottom">
+      <label class="upload-btn">
+        📷 上传 TA 的照片
+        <input type="file" id="fileInput" accept="image/*" multiple hidden />
+      </label>
+      <span class="counter" id="counter">0 / 500</span>
+      <button class="primary-btn" id="postBtn">发布表白</button>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <div class="tabs" id="filterTabs"></div>
+    <select class="sort" id="sortSelect">
+      <option value="new">最新发布</option>
+      <option value="hot">最热门</option>
+    </select>
+    <input class="search" id="searchInput" placeholder="搜索内容 / 昵称…" />
+  </div>
+
+  <section id="feed"></section>
+  <div id="sentinel" class="sentinel"></div>
+
+  <footer>
+    祥和表白墙 · 校园匿名心声墙<br />
+    Designed &amp; Developed by <b>余念大王</b><br />
+    内容均为用户匿名发布，请勿人身攻击 · 涉及真实隐私请谨慎
+    <a href=" " class="admin-link">管理入口</a >
+  </footer>
+</main>
+
+<div class="lightbox" id="lightbox">< img id="lightboxImg" alt="预览" /></div>
+<div id="toast"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
