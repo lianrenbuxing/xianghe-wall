@@ -126,9 +126,6 @@ app.get('/api/posts', (req, res) => {
   const orderSql = 'p.pinned DESC, ' + (sort === 'hot'
   ? `(p.likes + ...) DESC, p.created_at DESC`
   : 'p.created_at DESC');
-
-    console.log('排序是:', orderSql);
-
   const rows = db.prepare(`
     SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.hidden = 0) AS comment_count
     FROM posts p
