@@ -144,6 +144,7 @@ async function loadStats(){
     $('statBox').innerHTML =
       `<div>💌 公开表白 <b>${s.posts}</b> 条</div>` +
       `<div>🙈 已隐藏 <b>${hidden}</b> 条</div>` +
+      
       `<div>❤ 总赞数 <b>${s.likes}</b></div>` +
       `<div>💬 总评论 <b>${s.comments}</b></div>`;
   }catch(e){ $('statBox').textContent = '统计加载失败'; }
@@ -166,11 +167,13 @@ async function loadList(){
           <span class="badge">💬 ${p.comment_count}</span>
           <span>${fmt(p.created_at)}</span>
           ${p.hidden ? '<span class="badge dark">已隐藏</span>' : ''}
+          ${p.pinned ? '<span class="badge" style="background:#fff3d6;color:#b8860b">📌 置顶</span>' : ''}
         </div>
         <div class="text">${esc(p.text)}</div>
         ${p.images.length ? `<div class="thumbs">${p.images.map(src=>`< img src="${esc(src)}" alt="" />`).join('')}</div>` : ''}
         <div class="row" style="margin-top:12px;">
           <button class="ghost" data-act="hide">${p.hidden ? '取消隐藏' : '隐藏'}</button>
+          <button class="ghost" data-act="pin">${p.pinned ? '取消置顶' : '置顶'}</button>
           <button class="danger" data-act="del">删除</button>
         </div>
       </div>
@@ -199,7 +202,13 @@ $('list').addEventListener('click', async e => {
       enterPanel();
     }catch(err){ toast(err.message); }
   }
-
+     if (btn.dataset.act === 'pin'){
+    try{
+      const { pinned } = await api('/admin/posts/' + id + '/pin', { method: 'POST' });
+      toast(pinned ? '已置顶' : '已取消置顶');
+      enterPanel();
+    }catch(err){ toast(err.message); }
+  }
   if (btn.dataset.act === 'hide'){
     try{
       const { hidden } = await api('/admin/posts/' + id + '/hide', { method: 'POST' });

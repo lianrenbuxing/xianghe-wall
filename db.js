@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS posts (
   images     TEXT    NOT NULL DEFAULT '[]',
   likes      INTEGER NOT NULL DEFAULT 0,
   hidden     INTEGER NOT NULL DEFAULT 0,
+  pinned     INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
+  
 );
 CREATE TABLE IF NOT EXISTS comments (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +35,12 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_posts_created  ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comments_post  ON comments(post_id);
 `);
+
+// 给旧数据库补上 pinned 列（如果还没有）
+const postCols = db.prepare("PRAGMA table_info(posts)").all();
+if (!postCols.some(c => c.name === 'pinned')) {
+  db.exec("ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+}
 
 export const TAGS = ['表白', '寻人', '祝福', '吐槽', '日常'];
 
@@ -48,7 +56,6 @@ export const COLORS = [
 ];
 
 export const randomPick = arr => arr[Math.floor(Math.random() * arr.length)];
-
 export function mapPost(row) {
   return {
     id: row.id,
@@ -59,6 +66,7 @@ export function mapPost(row) {
     images: JSON.parse(row.images || '[]'),
     likes: row.likes,
     hidden: !!row.hidden,
+    pinned: !!row.pinned,
     created_at: row.created_at,
     comment_count: row.comment_count ?? 0
   };

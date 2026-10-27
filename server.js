@@ -123,10 +123,11 @@ app.get('/api/posts', (req, res) => {
   if (q) { where.push('(p.text LIKE @q OR p.name LIKE @q)'); params.q = '%' + q + '%'; }
   const whereSql = where.join(' AND ');
 
-  const orderSql = sort === 'hot'
-    ? `(p.likes + (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.hidden = 0) * 2) DESC,
-       p.created_at DESC`
-    : 'p.created_at DESC';
+  const orderSql = 'p.pinned DESC, ' + (sort === 'hot'
+  ? `(p.likes + ...) DESC, p.created_at DESC`
+  : 'p.created_at DESC');
+
+    console.log('排序是:', orderSql);
 
   const rows = db.prepare(`
     SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id AND c.hidden = 0) AS comment_count
@@ -246,6 +247,15 @@ app.post('/api/admin/posts/:id/hide', adminOnly, (req, res) => {
   db.prepare('UPDATE posts SET hidden = 1 - hidden WHERE id = ?').run(id);
   const row = db.prepare('SELECT hidden FROM posts WHERE id = ?').get(id);
   res.json({ hidden: !!row?.hidden });
+});
+
+// 置顶 / 取消置顶
+app.post('/api/admin/posts/:id/pin', adminOnly, (req, res) => {
+  const id = toId(req.params.id);
+  if (!id) return res.status(400).json({ error: '参数有误' });
+  db.prepare('UPDATE posts SET pinned = 1 - pinned WHERE id = ?').run(id);
+  const row = db.prepare('SELECT pinned FROM posts WHERE id = ?').get(id);
+  res.json({ pinned: !!row?.pinned });
 });
 
 app.delete('/api/admin/posts/:id', adminOnly, (req, res) => {

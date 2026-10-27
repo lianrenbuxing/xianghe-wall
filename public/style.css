@@ -120,6 +120,10 @@ body{
   font-size:11.5px;padding:3px 9px;border-radius:20px;
   background:rgba(155,108,255,.14);color:var(--accent2);
 }
+.pin-badge{
+  font-size:11.5px;padding:3px 9px;border-radius:20px;
+  background:#fff3d6;color:#b8860b;font-weight:600;
+}
 .post-body{font-size:15px;line-height:1.75;white-space:pre-wrap;word-break:break-word;}
 
 .img-grid{display:grid;gap:6px;margin-top:10px;}

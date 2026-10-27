@@ -129,6 +129,7 @@ function postHTML(p) {
       '<div class="sub">' + relTime(p.created_at) + '</div>' +
     '</div>' +
     '<span class="tag-badge">#' + escapeHtml(p.tag) + '</span>' +
+   (p.pinned ? '<span class="pin-badge">📌 置顶</span>' : '') +
   '</div>' +
   '<div class="post-body">' + escapeHtml(p.text) + '</div>' +
   '<div class="post-actions">' +
