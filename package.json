@@ -1,17 +1,26 @@
 {
   "name": "xianghe-wall",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
+  "description": "祥和表白墙 —— 校园匿名表白 / 寻人 / 祝福墙（Express + Turso/SQLite）",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "verify": "node scripts/verify-env.mjs",
+    "check": "node --check server.js && node --check db.js && node --check storage.js && node --check public/app.js"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "better-sqlite3": "latest",
+    "@libsql/client": "^0.18.0",
     "express": "^4.21.2",
     "multer": "^2.0.1"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

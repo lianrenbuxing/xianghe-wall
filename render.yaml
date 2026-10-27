@@ -1,0 +1,36 @@
+# Render Blueprint —— 在 Render 里选 "New + → Blueprint" 指向本仓库即可一键创建
+# 免费方案：数据存 Turso（云端 SQLite），图片存 Cloudinary，不需要付费磁盘
+services:
+  - type: web
+    name: xianghe-wall
+    runtime: node
+    plan: free
+    region: singapore          # 国内访问延迟较低；也可换成 oregon / frankfurt / ohio
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.4
+      - key: NODE_ENV
+        value: production
+      # 部署在 Render 的反向代理后面，信任 X-Forwarded-For 才能拿到真实访客 IP
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SECRET
+        generateValue: true
+      # —— 数据库（Turso 控制台里复制）——
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      # —— 图片（Cloudinary 控制台里复制）——
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

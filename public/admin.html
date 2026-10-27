@@ -44,6 +44,20 @@
   }
   #toast.show{opacity:1;transform:translate(-50%,0);}
   .hide{display:none !important;}
+  .t-input{
+    flex:1 1 130px;min-width:0;padding:9px 11px;border-radius:9px;
+    border:1px solid #eee3ec;font-size:13.5px;outline:none;
+  }
+  .t-input:focus{border-color:#ff5f8d;}
+  .t-item{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    border:1px solid #f1e8ef;border-radius:12px;padding:10px 12px;margin-bottom:8px;
+  }
+  .t-item.hidden{opacity:.5;background:#faf7fb;}
+  .t-item .t-name{font-weight:600;font-size:13.5px;}
+  .t-item .t-note{color:#8a8394;font-size:12.5px;}
+  .t-item .t-actions{margin-left:auto;display:flex;gap:6px;}
+  .t-item button{padding:6px 11px;font-size:12.5px;border-radius:8px;}
 </style>
 </head>
 <body>
@@ -70,6 +84,22 @@
       </div>
     </div>
     <div id="list"></div>
+
+    <div class="card">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">💝 致谢名单</div>
+      <div style="font-size:12.5px;color:#8a8394;margin-bottom:12px;">
+        排序数字越大越靠前；隐藏 = 前台不显示但保留数据
+      </div>
+      <div class="row" style="margin-bottom:12px;">
+        <input class="t-input" id="tName" maxlength="20" placeholder="名字（必填）" />
+        <input class="t-input" id="tNote" maxlength="60" placeholder="贡献说明，如：设计与开发" />
+        <input class="t-input" id="tLink" placeholder="链接（可空，https://…）" />
+        <input class="t-input" id="tSort" type="number" value="0" style="flex:0 0 88px;" title="排序，越大越靠前" />
+        <button id="tSave">添加</button>
+        <button class="ghost hide" id="tCancel">取消编辑</button>
+      </div>
+      <div id="tList" style="font-size:13px;color:#8a8394;">加载中…</div>
+    </div>
   </div>
 </div>
 <div id="toast"></div>
@@ -133,7 +163,7 @@ function logout(){
 async function enterPanel(){
   $('loginCard').classList.add('hide');
   $('panel').classList.remove('hide');
-  await Promise.all([loadStats(), loadList()]);
+  await Promise.all([loadStats(), loadList(), loadThanks()]);
 }
 
 async function loadStats(){
@@ -170,7 +200,7 @@ async function loadList(){
           ${p.pinned ? '<span class="badge" style="background:#fff3d6;color:#b8860b">📌 置顶</span>' : ''}
         </div>
         <div class="text">${esc(p.text)}</div>
-        ${p.images.length ? `<div class="thumbs">${p.images.map(src=>`< img src="${esc(src)}" alt="" />`).join('')}</div>` : ''}
+        ${p.images.length ? `<div class="thumbs">${p.images.map(src=>`<img src="${esc(src)}" alt="" loading="lazy" />`).join('')}</div>` : ''}
         <div class="row" style="margin-top:12px;">
           <button class="ghost" data-act="hide">${p.hidden ? '取消隐藏' : '隐藏'}</button>
           <button class="ghost" data-act="pin">${p.pinned ? '取消置顶' : '置顶'}</button>
@@ -183,9 +213,117 @@ async function loadList(){
   }
 }
 
+// ---------- 致谢名单 ----------
+let thanksCache = [];
+let editingThanksId = null;
+
+async function loadThanks(){
+  try{
+    const { thanks } = await api('/admin/thanks');
+    thanksCache = thanks;
+    if (!thanks.length){
+      $('tList').innerHTML = '还没有条目，上面填一个试试～';
+      return;
+    }
+    $('tList').innerHTML = thanks.map(t => `
+      <div class="t-item ${t.hidden ? 'hidden' : ''}" data-id="${t.id}">
+        <span class="t-name">${esc(t.name)}</span>
+        ${t.note ? `<span class="t-note">${esc(t.note)}</span>` : ''}
+        ${t.link ? `<a class="t-note" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">🔗 链接</a>` : ''}
+        <span class="t-note">排序 ${t.sort}</span>
+        ${t.hidden ? '<span class="badge dark">已隐藏</span>' : ''}
+        <span class="t-actions">
+          <button class="ghost" data-tact="edit">编辑</button>
+          <button class="ghost" data-tact="hide">${t.hidden ? '显示' : '隐藏'}</button>
+          <button class="danger" data-tact="del">删除</button>
+        </span>
+      </div>
+    `).join('');
+  }catch(e){
+    $('tList').textContent = e.message;
+  }
+}
+
+function resetThanksForm(){
+  editingThanksId = null;
+  $('tName').value = '';
+  $('tNote').value = '';
+  $('tLink').value = '';
+  $('tSort').value = '0';
+  $('tSave').textContent = '添加';
+  $('tCancel').classList.add('hide');
+}
+
+async function saveThanks(){
+  const payload = {
+    name: $('tName').value.trim(),
+    note: $('tNote').value.trim(),
+    link: $('tLink').value.trim(),
+    sort: Number($('tSort').value) || 0
+  };
+  if (!payload.name) return toast('名字不能为空');
+
+  const isEdit = editingThanksId !== null;
+  try{
+    if (isEdit){
+      await api('/admin/thanks/' + editingThanksId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      await api('/admin/thanks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+    resetThanksForm();
+    await loadThanks();
+    toast(isEdit ? '已保存' : '已添加');
+  }catch(e){ toast(e.message); }
+}
+
+$('tSave').addEventListener('click', saveThanks);
+$('tCancel').addEventListener('click', resetThanksForm);
+['tName', 'tNote', 'tLink', 'tSort'].forEach(id => {
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') saveThanks(); });
+});
+
+$('tList').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-tact]');
+  if (!btn) return;
+  const item = btn.closest('.t-item');
+  const id = item.dataset.id;
+  const act = btn.dataset.tact;
+
+  try{
+    if (act === 'del'){
+      if (!confirm('确定删除这条致谢吗？')) return;
+      await api('/admin/thanks/' + id, { method: 'DELETE' });
+      toast('已删除');
+    } else if (act === 'hide'){
+      const { hidden } = await api('/admin/thanks/' + id + '/hide', { method: 'POST' });
+      toast(hidden ? '已隐藏' : '已显示');
+    } else if (act === 'edit'){
+      const t = thanksCache.find(x => String(x.id) === id);
+      if (!t) return;
+      editingThanksId = id;
+      $('tName').value = t.name;
+      $('tNote').value = t.note;
+      $('tLink').value = t.link;
+      $('tSort').value = String(t.sort);
+      $('tSave').textContent = '保存修改';
+      $('tCancel').classList.remove('hide');
+      $('tName').focus();
+      return;
+    }
+    await loadThanks();
+  }catch(err){ toast(err.message); }
+});
+
 $('loginBtn').addEventListener('click', login);
-$('pwd').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-$('logoutBtn').addEventListener('click', logout);
+$('pwd').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });$('logoutBtn').addEventListener('click', logout);
 $('refreshBtn').addEventListener('click', enterPanel);
 
 $('list').addEventListener('click', async e => {

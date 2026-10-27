@@ -190,6 +190,32 @@ footer b{color:var(--accent);}
 .admin-link{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);}
 .admin-link:hover{color:var(--accent);}
 
+/* ---------- 致谢名单 ---------- */
+.back-link{
+  color:#fff;text-decoration:none;font-size:12.5px;background:rgba(255,255,255,.18);
+  padding:8px 13px;border-radius:20px;white-space:nowrap;
+}
+.back-link:hover{background:rgba(255,255,255,.3);}
+.thanks-intro{margin-top:30px;}
+.thanks-intro p{margin:0;font-size:13.5px;line-height:1.9;color:var(--muted);}
+.thanks-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:14px;margin-top:16px;}
+.thanks-card{display:flex;gap:12px;align-items:flex-start;margin-bottom:0;padding:16px;}
+.thanks-avatar{
+  width:44px;height:44px;border-radius:50%;flex:0 0 auto;
+  display:grid;place-items:center;color:#fff;font-size:16px;font-weight:700;
+}
+.thanks-body{min-width:0;}
+.thanks-body h3{margin:2px 0 4px;font-size:15px;line-height:1.4;word-break:break-word;}
+.thanks-body p{margin:0;font-size:12.8px;line-height:1.65;color:var(--muted);word-break:break-word;}
+.thanks-body a{
+  display:inline-block;margin-top:7px;font-size:12.5px;color:var(--accent2);
+  text-decoration:none;word-break:break-all;
+}
+.thanks-body a:hover{text-decoration:underline;}
+@media (max-width:480px){
+  .thanks-grid{grid-template-columns:1fr;}
+}
+
 @media (prefers-reduced-motion: reduce){
   *{animation:none !important;transition:none !important;}
   #hearts{display:none;}

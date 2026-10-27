@@ -11,6 +11,8 @@ const liked = new Set(JSON.parse(localStorage.getItem(LIKED_KEY) || '[]'));
 const openComments = new Set();
 let postTag = '表白';
 let pending = [];
+let loadSeq = 0; // 每次筛选/排序都会 ++，用来丢弃过期的请求结果
+let publishing = false;
 
 function escapeHtml(s = '') {
   return String(s).replace(/[&<>"']/g, c => (
@@ -148,15 +150,16 @@ function postHTML(p) {
 }
 
 async function loadPosts(reset = false) {
-  if (state.loading) return;
   if (reset) {
     state.offset = 0;
     el('feed').innerHTML = '';
+  } else if (state.loading) {
+    return;
   }
   if (state.total !== 0 && state.offset >= state.total) return;
 
+  const seq = ++loadSeq;
   state.loading = true;
-  el('postBtn').disabled = true;
 
   try {
     const qs = new URLSearchParams({
@@ -167,12 +170,13 @@ async function loadPosts(reset = false) {
       offset: state.offset
     });
     const data = await api('/posts?' + qs.toString());
+    if (seq !== loadSeq) return; // 用户已经切到别的筛选条件，旧结果直接丢掉
     state.total = data.total;
     state.offset += data.posts.length;
 
     if (reset && !data.posts.length) {
       el('feed').innerHTML =
-        '<div class="card empty"><div class="empty-emoji">💌</div><p>这里还空空的，来写下第一条表白吧～</p ></div>';
+        '<div class="card empty"><div class="empty-emoji">💌</div><p>这里还空空的，来写下第一条表白吧～</p></div>';
     } else {
       data.posts.forEach(p => {
         const card = document.createElement('article');
@@ -201,15 +205,15 @@ async function loadPosts(reset = false) {
       });
     }
   } catch (e) {
-    toast(e.message);
+    if (seq === loadSeq) toast(e.message);
   } finally {
-    state.loading = false;
-    el('postBtn').disabled = false;
+    if (seq === loadSeq) state.loading = false;
   }
 }
 
 async function loadComments(card, id) {
   const list = card.querySelector('.c-list');
+  if (!list) return;
   try {
     const data = await api('/posts/' + id + '/comments');
     list.innerHTML = data.comments.length
@@ -224,11 +228,12 @@ async function loadComments(card, id) {
 }
 
 async function publish() {
+  if (publishing) return;
   const text = el('contentInput').value.trim();
   const name = el('nickInput').value.trim();
-  if (!text && !pending.length) return toast('先写点什么，或者上传一张照片吧 ✍️');
-  if (!text) return toast('照片要配上一句话才好呀～');
+  if (!text) return toast('先写点什么再发布吧 ✍️');
 
+  publishing = true;
   el('postBtn').disabled = true;
   el('postBtn').textContent = '发布中…';
 
@@ -257,6 +262,7 @@ async function publish() {
   } catch (e) {
     toast(e.message);
   } finally {
+    publishing = false;
     el('postBtn').disabled = false;
     el('postBtn').textContent = '发布表白';
   }
@@ -352,18 +358,16 @@ function bind() {
       const delta = isLiked ? -1 : 1;
       const numEl = card.querySelector('.like-num');
       const heartEl = card.querySelector('.heart');
-      const cur = Number(numEl.textContent) || 0;
+      const prevCount = Number(numEl.textContent) || 0;
 
-      if (isLiked) {
-        liked.delete(id);
-        btn.classList.remove('liked');
-        heartEl.textContent = '🤍';
-      } else {
-        liked.add(id);
-        btn.classList.add('liked');
-        heartEl.textContent = '❤';
-      }
-      numEl.textContent = Math.max(0, cur + delta);
+      const paint = on => {
+        btn.classList.toggle('liked', on);
+        heartEl.textContent = on ? '❤' : '🤍';
+        numEl.textContent = on ? prevCount + 1 : Math.max(0, prevCount - 1);
+      };
+
+      if (isLiked) liked.delete(id); else liked.add(id);
+      paint(!isLiked);
       localStorage.setItem(LIKED_KEY, JSON.stringify([...liked]));
 
       try {
@@ -374,6 +378,11 @@ function bind() {
         });
         numEl.textContent = data.likes;
       } catch (err) {
+        // 请求失败就把本地的乐观更新回滚，避免点赞数和服务器不一致
+        if (isLiked) liked.add(id); else liked.delete(id);
+        paint(isLiked);
+        numEl.textContent = prevCount;
+        localStorage.setItem(LIKED_KEY, JSON.stringify([...liked]));
         toast(err.message);
       }
 
@@ -404,7 +413,7 @@ function bind() {
         input.value = '';
         await loadComments(card, id);
         const cNum = card.querySelector('.c-num');
-        cNum.textContent = (Number(cNum.textContent) || 0) + 1;
+        if (cNum) cNum.textContent = (Number(cNum.textContent) || 0) + 1;
         updateStats();
       } catch (err) {
         toast(err.message);
