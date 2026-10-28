@@ -58,6 +58,12 @@
   .t-item .t-note{color:#8a8394;font-size:12.5px;}
   .t-item .t-actions{margin-left:auto;display:flex;gap:6px;}
   .t-item button{padding:6px 11px;font-size:12.5px;border-radius:8px;}
+  .t-upload{
+    padding:7px 12px;border-radius:9px;border:1px dashed #eee3ec;color:#8a8394;
+    font-size:12.5px;cursor:pointer;white-space:nowrap;
+  }
+  .t-upload:hover{border-color:#ff5f8d;color:#ff5f8d;}
+  .t-avatar-preview{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;}
 </style>
 </head>
 <body>
@@ -97,6 +103,13 @@
         <input class="t-input" id="tSort" type="number" value="0" style="flex:0 0 88px;" title="排序，越大越靠前" />
         <button id="tSave">添加</button>
         <button class="ghost hide" id="tCancel">取消编辑</button>
+      </div>
+      <div class="row" style="margin-bottom:12px;">
+        <label class="t-upload" for="tAvatar">🖼 选择头像</label>
+        <input type="file" id="tAvatar" accept="image/*" class="hide" />
+        <img id="tAvatarPreview" class="t-avatar-preview hide" alt="" />
+        <span id="tAvatarHint" class="t-note">未选择头像</span>
+        <button class="ghost hide" id="tAvatarClear" type="button">移除头像</button>
       </div>
       <div id="tList" style="font-size:13px;color:#8a8394;">加载中…</div>
     </div>
@@ -216,6 +229,22 @@ async function loadList(){
 // ---------- 致谢名单 ----------
 let thanksCache = [];
 let editingThanksId = null;
+let pendingAvatar = null;
+let removeAvatarFlag = false;
+let avatarObjectUrl = '';
+
+function setAvatarPreview(url, hint){
+  const img = $('tAvatarPreview');
+  if (url){
+    img.src = url;
+    img.classList.remove('hide');
+  } else {
+    img.removeAttribute('src');
+    img.classList.add('hide');
+  }
+  $('tAvatarHint').textContent = hint || (url ? '已选择头像' : '未选择头像');
+  $('tAvatarClear').classList.toggle('hide', !url);
+}
 
 async function loadThanks(){
   try{
@@ -227,6 +256,7 @@ async function loadThanks(){
     }
     $('tList').innerHTML = thanks.map(t => `
       <div class="t-item ${t.hidden ? 'hidden' : ''}" data-id="${t.id}">
+        ${t.avatar ? `<img class="t-avatar-preview" src="${esc(t.avatar)}" alt="" />` : ''}
         <span class="t-name">${esc(t.name)}</span>
         ${t.note ? `<span class="t-note">${esc(t.note)}</span>` : ''}
         ${t.link ? `<a class="t-note" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">🔗 链接</a>` : ''}
@@ -246,37 +276,36 @@ async function loadThanks(){
 
 function resetThanksForm(){
   editingThanksId = null;
+  pendingAvatar = null;
+  removeAvatarFlag = false;
+  if (avatarObjectUrl){ URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = ''; }
   $('tName').value = '';
   $('tNote').value = '';
   $('tLink').value = '';
   $('tSort').value = '0';
   $('tSave').textContent = '添加';
   $('tCancel').classList.add('hide');
+  setAvatarPreview('', '未选择头像');
 }
 
 async function saveThanks(){
-  const payload = {
-    name: $('tName').value.trim(),
-    note: $('tNote').value.trim(),
-    link: $('tLink').value.trim(),
-    sort: Number($('tSort').value) || 0
-  };
-  if (!payload.name) return toast('名字不能为空');
+  const name = $('tName').value.trim();
+  if (!name) return toast('名字不能为空');
+
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('note', $('tNote').value.trim());
+  fd.append('link', $('tLink').value.trim());
+  fd.append('sort', String(Number($('tSort').value) || 0));
+  if (pendingAvatar) fd.append('avatar', pendingAvatar);
+  if (removeAvatarFlag) fd.append('removeAvatar', '1');
 
   const isEdit = editingThanksId !== null;
   try{
     if (isEdit){
-      await api('/admin/thanks/' + editingThanksId, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      await api('/admin/thanks/' + editingThanksId, { method: 'PUT', body: fd });
     } else {
-      await api('/admin/thanks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      await api('/admin/thanks', { method: 'POST', body: fd });
     }
     resetThanksForm();
     await loadThanks();
@@ -288,6 +317,28 @@ $('tSave').addEventListener('click', saveThanks);
 $('tCancel').addEventListener('click', resetThanksForm);
 ['tName', 'tNote', 'tLink', 'tSort'].forEach(id => {
   $(id).addEventListener('keydown', e => { if (e.key === 'Enter') saveThanks(); });
+});
+
+$('tAvatar').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) return toast('只能选图片文件');
+  if (file.size > 5 * 1024 * 1024) return toast('头像不能超过 5MB');
+
+  if (avatarObjectUrl) URL.revokeObjectURL(avatarObjectUrl);
+  avatarObjectUrl = URL.createObjectURL(file);
+  pendingAvatar = file;
+  removeAvatarFlag = false;
+  setAvatarPreview(avatarObjectUrl, '已选择：' + file.name);
+});
+
+$('tAvatarClear').addEventListener('click', () => {
+  pendingAvatar = null;
+  removeAvatarFlag = true;
+  if (avatarObjectUrl){ URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = ''; }
+  setAvatarPreview('', '保存后移除头像');
+  $('tAvatarClear').classList.add('hide');
 });
 
 $('tList').addEventListener('click', async e => {
@@ -309,12 +360,16 @@ $('tList').addEventListener('click', async e => {
       const t = thanksCache.find(x => String(x.id) === id);
       if (!t) return;
       editingThanksId = id;
+      pendingAvatar = null;
+      removeAvatarFlag = false;
+      if (avatarObjectUrl){ URL.revokeObjectURL(avatarObjectUrl); avatarObjectUrl = ''; }
       $('tName').value = t.name;
       $('tNote').value = t.note;
       $('tLink').value = t.link;
       $('tSort').value = String(t.sort);
       $('tSave').textContent = '保存修改';
       $('tCancel').classList.remove('hide');
+      setAvatarPreview(t.avatar || '', t.avatar ? '当前头像' : '未选择头像');
       $('tName').focus();
       return;
     }

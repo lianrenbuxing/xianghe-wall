@@ -1,6 +1,6 @@
 # 祥和表白墙 💗
 
-校园匿名表白墙：发帖（文字 + 最多 3 张图）、点赞、匿名评论、话题筛选、搜索、热门排序、置顶、**致谢名单专区**，以及带密码的管理后台。
+校园匿名表白墙：发帖（文字 + 最多 3 张图）、点赞、匿名评论、话题筛选、搜索、热门排序、置顶、**致谢名单专区（支持头像）**，以及带密码的管理后台。
 
 技术栈很轻：**Node.js + Express 4 + SQLite/Turso + 原生前端**，没有构建步骤，克隆下来 `npm start` 就能跑。
 
@@ -92,10 +92,10 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 | POST | `/api/admin/posts/:id/pin` | 置顶 / 取消置顶 |
 | DELETE | `/api/admin/posts/:id` | 彻底删除，连带删除图片文件 |
 | GET | `/api/admin/thanks` | 致谢名单（含已隐藏） |
-| POST | `/api/admin/thanks` | 新增致谢，JSON `{name, note, link, sort}` |
-| PUT | `/api/admin/thanks/:id` | 修改致谢 |
+| POST | `/api/admin/thanks` | 新增致谢：`multipart/form-data`，字段 `name`、`note`、`link`、`sort`、可选 `avatar` 图片；也兼容纯 JSON |
+| PUT | `/api/admin/thanks/:id` | 修改致谢；带 `avatar` 文件则替换头像，`removeAvatar=1` 则移除 |
 | POST | `/api/admin/thanks/:id/hide` | 隐藏 / 显示致谢 |
-| DELETE | `/api/admin/thanks/:id` | 删除致谢 |
+| DELETE | `/api/admin/thanks/:id` | 删除致谢（连带删除头像文件） |
 
 限流（按 IP，内存计数）：发帖 5 次/分钟、评论 15 次/分钟、点赞 90 次/分钟、登录 8 次/10 分钟。
 
@@ -116,6 +116,7 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 - 独立页面 `/thanks.html`，卡片式展示名字、贡献说明、可选链接，支持深浅主题，手机单列自适应。
 - 首页页脚新增「💝 致谢名单」入口。
 - 后台新增管理区：添加 / 编辑 / 隐藏 / 删除，支持排序值控制先后；首次启动自带 2 条示例，可自行改或删。
+- **支持头像**：后台上传图片作为该条致谢的头像，替换时自动删除旧图，也可以一键移除；没传头像时自动回退成「首字 + 配色」的圆形头像。
 - 链接只接受 `http(s)`，前端渲染统一转义，`javascript:` 之类的注入在服务端就被挡掉。
 - 数据存在 `thanks` 表，随 `data/wall.db` 一起备份即可。
 
@@ -146,7 +147,7 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 ### 工程化
 
 - `better-sqlite3` 从 `"latest"` 改为 `^13.0.3`（`latest` 会让每次 `npm install` 装到不同版本）。
-- 新增 `test/api.test.js` 与 `test/storage.test.js`（`node:test`，零额外依赖）覆盖 24 个场景：排序、翻页、上传校验、后台鉴权与置顶/隐藏/删除、致谢名单增删改查、图片格式识别、HTML 合法性回归、安全头。
+- 新增 `test/api.test.js` 与 `test/storage.test.js`（`node:test`，零额外依赖）覆盖 26 个场景：排序、翻页、上传校验、后台鉴权与置顶/隐藏/删除、致谢名单增删改查与头像替换、图片格式识别、HTML 合法性回归、安全头。
 - 新增 `.env.example`、`.gitignore`（`.env`、`data/`）、`npm run check`。
 
 ---
@@ -180,7 +181,6 @@ location / {
 
 ## 还可以继续做（按优先级）
 
-- [ ] 致谢名单支持上传头像（表加 `avatar` 列，复用 `storage.js`，无头像时回退首字头像）
 - [ ] 管理员回复 / 评论审核，评论举报
 - [ ] 发帖前接入内容安全（敏感词 / 审核队列）
 - [ ] 图片压缩改到服务端（sharp），前端压缩在部分老安卓上不稳

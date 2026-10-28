@@ -361,31 +361,62 @@ app.get('/api/admin/thanks', adminOnly, h(async (req, res) => {
   res.json({ thanks: rows.map(mapThanks) });
 }));
 
-app.post('/api/admin/thanks', adminOnly, h(async (req, res) => {
+app.post('/api/admin/thanks', adminOnly, upload.single('avatar'), h(async (req, res) => {
   const data = parseThanksBody(req.body);
   if (data.error) return res.status(400).json({ error: data.error });
 
+  let avatarUrl = '';
+  let avatarKey = '';
+  if (req.file) {
+    try {
+      const saved = await saveImage(req.file.buffer);
+      avatarUrl = saved.url;
+      avatarKey = saved.key;
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
   const info = await db.run(
-    'INSERT INTO thanks (name,note,link,sort,created_at) VALUES (?,?,?,?,?)',
-    [data.name, data.note, data.link, data.sort, Date.now()]
+    'INSERT INTO thanks (name,note,link,avatar,avatar_key,sort,created_at) VALUES (?,?,?,?,?,?,?)',
+    [data.name, data.note, data.link, avatarUrl, avatarKey, data.sort, Date.now()]
   );
   const row = await db.get('SELECT * FROM thanks WHERE id = ?', [info.lastInsertRowid]);
   res.json({ item: mapThanks(row) });
 }));
 
-app.put('/api/admin/thanks/:id', adminOnly, h(async (req, res) => {
+app.put('/api/admin/thanks/:id', adminOnly, upload.single('avatar'), h(async (req, res) => {
   const id = toId(req.params.id);
   if (!id) return res.status(400).json({ error: '参数有误' });
 
   const data = parseThanksBody(req.body);
   if (data.error) return res.status(400).json({ error: data.error });
 
-  const info = await db.run(
-    'UPDATE thanks SET name=?, note=?, link=?, sort=? WHERE id=?',
-    [data.name, data.note, data.link, data.sort, id]
-  );
-  if (!info.changes) return res.status(404).json({ error: '这条致谢不存在' });
+  const current = await db.get('SELECT avatar, avatar_key FROM thanks WHERE id = ?', [id]);
+  if (!current) return res.status(404).json({ error: '这条致谢不存在' });
 
+  let avatarUrl = current.avatar || '';
+  let avatarKey = current.avatar_key || '';
+
+  if (req.file) {
+    try {
+      const saved = await saveImage(req.file.buffer);
+      if (avatarKey) await deleteImage(avatarKey).catch(() => {});
+      avatarUrl = saved.url;
+      avatarKey = saved.key;
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  } else if (String(req.body.removeAvatar) === '1' && avatarKey) {
+    await deleteImage(avatarKey).catch(() => {});
+    avatarUrl = '';
+    avatarKey = '';
+  }
+
+  await db.run(
+    'UPDATE thanks SET name=?, note=?, link=?, avatar=?, avatar_key=?, sort=? WHERE id=?',
+    [data.name, data.note, data.link, avatarUrl, avatarKey, data.sort, id]
+  );
   const row = await db.get('SELECT * FROM thanks WHERE id = ?', [id]);
   res.json({ item: mapThanks(row) });
 }));
@@ -401,6 +432,10 @@ app.post('/api/admin/thanks/:id/hide', adminOnly, h(async (req, res) => {
 app.delete('/api/admin/thanks/:id', adminOnly, h(async (req, res) => {
   const id = toId(req.params.id);
   if (!id) return res.status(400).json({ error: '参数有误' });
+
+  const row = await db.get('SELECT avatar_key FROM thanks WHERE id = ?', [id]);
+  if (row?.avatar_key) await deleteImage(row.avatar_key).catch(() => {});
+
   await db.run('DELETE FROM thanks WHERE id = ?', [id]);
   res.json({ ok: true });
 }));

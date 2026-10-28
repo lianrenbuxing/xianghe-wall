@@ -1,6 +1,6 @@
 {
   "name": "xianghe-wall",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "祥和表白墙 —— 校园匿名表白 / 寻人 / 祝福墙（Express + Turso/SQLite）",
   "type": "module",

@@ -61,6 +61,7 @@ const json = body => ({
 
 // 只骗过魔数校验的最小 PNG 头
 const PNG_HEAD = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0, 0, 0, 1]);
+const JPG_HEAD = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
 
 function postForm(fields, files = []) {
   const fd = new FormData();
@@ -332,6 +333,67 @@ test('致谢名单：非法链接、空名字、未登录都被拒绝', async ()
   assert.equal(noName.status, 400);
 
   assert.equal((await api('/admin/thanks')).status, 401, '未登录不能读后台名单');
+});
+
+test('致谢头像：上传、替换、移除', async () => {
+  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
+  const auth = { Authorization: 'Bearer ' + login.data.token };
+
+  const fd = new FormData();
+  fd.append('name', '头像测试');
+  fd.append('note', '带头像');
+  fd.append('sort', '50');
+  fd.append('avatar', new Blob([PNG_HEAD], { type: 'image/png' }), 'avatar.png');
+
+  const created = await api('/admin/thanks', { method: 'POST', headers: auth, body: fd });
+  assert.equal(created.status, 200);
+  const id = created.data.item.id;
+  const firstAvatar = created.data.item.avatar;
+  assert.match(firstAvatar, /^\/uploads\/.+\.png$/);
+
+  // 公开接口能拿到头像
+  const pub = await api('/thanks');
+  assert.ok(pub.data.thanks.some(t => t.id === id && t.avatar === firstAvatar));
+
+  // 头像文件可访问
+  assert.equal((await fetch(base + firstAvatar)).status, 200);
+
+  // 换成 jpg 头像
+  const fd2 = new FormData();
+  fd2.append('name', '头像测试');
+  fd2.append('note', '换头像了');
+  fd2.append('avatar', new Blob([JPG_HEAD], { type: 'image/jpeg' }), 'new.jpg');
+
+  const updated = await api('/admin/thanks/' + id, { method: 'PUT', headers: auth, body: fd2 });
+  assert.equal(updated.status, 200);
+  assert.match(updated.data.item.avatar, /\.jpg$/);
+  assert.notEqual(updated.data.item.avatar, firstAvatar);
+
+  // 旧头像应当被删除
+  assert.equal((await fetch(base + firstAvatar)).status, 404, '替换头像后旧文件应删除');
+
+  // 移除头像
+  const fd3 = new FormData();
+  fd3.append('name', '头像测试');
+  fd3.append('removeAvatar', '1');
+  const removed = await api('/admin/thanks/' + id, { method: 'PUT', headers: auth, body: fd3 });
+  assert.equal(removed.data.item.avatar, '');
+  assert.equal((await fetch(base + updated.data.item.avatar)).status, 404, '移除后头像文件应删除');
+
+  await api('/admin/thanks/' + id, { method: 'DELETE', headers: auth });
+});
+
+test('致谢头像：非图片文件被拒绝', async () => {
+  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
+  const auth = { Authorization: 'Bearer ' + login.data.token };
+
+  const fd = new FormData();
+  fd.append('name', '坏头像');
+  fd.append('avatar', new Blob([Buffer.from('definitely not an image')], { type: 'image/png' }), 'evil.png');
+
+  const res = await api('/admin/thanks', { method: 'POST', headers: auth, body: fd });
+  assert.equal(res.status, 400);
+  assert.match(res.data.error, /图片格式/);
 });
 
 test('致谢页可以访问且结构正确', async () => {

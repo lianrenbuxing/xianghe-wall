@@ -26,10 +26,14 @@ function render(list) {
 
   box.innerHTML = list.map((t, i) => {
     const color = COLORS[i % COLORS.length];
+    const avatar = t.avatar
+      ? '<div class="thanks-avatar has-photo"><img src="' + escapeHtml(t.avatar) + '" alt="" loading="lazy" /></div>'
+      : '<div class="thanks-avatar" style="background:' + color + '">' +
+          escapeHtml(String(t.name).slice(0, 1)) +
+        '</div>';
+
     return '<article class="card thanks-card">' +
-      '<div class="thanks-avatar" style="background:' + color + '">' +
-        escapeHtml(String(t.name).slice(0, 1)) +
-      '</div>' +
+      avatar +
       '<div class="thanks-body">' +
         '<h3>' + escapeHtml(t.name) + '</h3>' +
         (t.note ? '<p>' + escapeHtml(t.note) + '</p>' : '') +

@@ -5,23 +5,28 @@ import { fileURLToPath } from 'node:url';
 
 const envFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '.env');
 
-try {
-  const text = fs.readFileSync(envFile, 'utf8');
-  for (const line of text.split(/\r?\n/)) {
-    if (!line || /^\s*#/.test(line)) continue;
-    const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*?)\s*$/);
-    if (!m) continue;
-    const key = m[1];
-    if (process.env[key] !== undefined) continue;
-    let value = m[2] ?? '';
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+// 自动化测试绝不能读到真实 .env，否则会往线上数据库写数据
+const skip = process.env.NODE_ENV === 'test' || process.env.XH_SKIP_DOTENV === '1';
+
+if (!skip) {
+  try {
+    const text = fs.readFileSync(envFile, 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      if (!line || /^\s*#/.test(line)) continue;
+      const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*?)\s*$/);
+      if (!m) continue;
+      const key = m[1];
+      if (process.env[key] !== undefined) continue;
+      let value = m[2] ?? '';
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
     }
-    process.env[key] = value;
+  } catch {
+    // 没有 .env 文件是正常情况
   }
-} catch {
-  // 没有 .env 文件是正常情况
 }

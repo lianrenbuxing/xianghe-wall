@@ -111,6 +111,8 @@ const SCHEMA = [
      name       TEXT    NOT NULL,
      note       TEXT    NOT NULL DEFAULT '',
      link       TEXT    NOT NULL DEFAULT '',
+     avatar     TEXT    NOT NULL DEFAULT '',
+     avatar_key TEXT    NOT NULL DEFAULT '',
      sort       INTEGER NOT NULL DEFAULT 0,
      hidden     INTEGER NOT NULL DEFAULT 0,
      created_at INTEGER NOT NULL
@@ -124,8 +126,10 @@ for (const statement of SCHEMA) {
   await db.exec(statement);
 }
 
-// 老库补列：pinned 是后来加的
+// 老库补列：pinned、致谢头像都是后来加的
 await ensureColumn('posts', 'pinned', 'ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+await ensureColumn('thanks', 'avatar', "ALTER TABLE thanks ADD COLUMN avatar TEXT NOT NULL DEFAULT ''");
+await ensureColumn('thanks', 'avatar_key', "ALTER TABLE thanks ADD COLUMN avatar_key TEXT NOT NULL DEFAULT ''");
 
 async function ensureColumn(table, column, ddl) {
   try {
@@ -213,6 +217,7 @@ export function mapThanks(row) {
     name: row.name,
     note: row.note,
     link: row.link,
+    avatar: row.avatar || '',
     sort: row.sort,
     hidden: !!row.hidden,
     created_at: row.created_at
