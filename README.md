@@ -1,6 +1,6 @@
 # 祥和表白墙 💗
 
-校园匿名表白墙：发帖（文字 + 最多 3 张图）、点赞、匿名评论、话题筛选、搜索、热门排序、置顶、**致谢名单专区（支持头像）**，以及带密码的管理后台。
+校园匿名表白墙：发帖（文字 + 最多 3 张图）、点赞、匿名评论、话题筛选、搜索、热门排序、置顶、**致谢名单专区（支持头像）**，以及带密码的管理后台（帖子、评论、致谢名单都能管）。
 
 技术栈很轻：**Node.js + Express 4 + SQLite/Turso + 原生前端**，没有构建步骤，克隆下来 `npm start` 就能跑。
 
@@ -66,7 +66,7 @@ public/app.js        前台交互（发布 / 点赞 / 评论 / 无限滚动 / �
 public/thanks.html   致谢名单页
 public/thanks.js     致谢名单渲染与主题切换
 public/style.css     样式（浅色 + 深色主题）
-public/admin.html    管理后台（登录 / 隐藏 / 置顶 / 删除 / 维护致谢名单）
+public/admin.html    管理后台（登录 / 隐藏 / 置顶 / 删除 / 评论管理 / 维护致谢名单）
 test/api.test.js     接口与 HTML 回归测试
 test/storage.test.js 图片格式识别与存储回退测试
 data/                本地模式运行时生成：wall.db + uploads/ + .secret（已 gitignore）
@@ -90,7 +90,10 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 | GET | `/api/admin/posts` | 后台列表（含已隐藏，最多 300 条） |
 | POST | `/api/admin/posts/:id/hide` | 隐藏 / 取消隐藏（软删除） |
 | POST | `/api/admin/posts/:id/pin` | 置顶 / 取消置顶 |
-| DELETE | `/api/admin/posts/:id` | 彻底删除，连带删除图片文件 |
+| DELETE | `/api/admin/posts/:id` | 彻底删除，连带删除评论和图片文件 |
+| GET | `/api/admin/comments` | 评论管理列表（含已隐藏），`filter=hidden` 只看已隐藏；带所属帖子信息 |
+| POST | `/api/admin/comments/:id/hide` | 隐藏 / 取消隐藏评论（软删除，前台计数同步变化） |
+| DELETE | `/api/admin/comments/:id` | 彻底删除一条评论 |
 | GET | `/api/admin/thanks` | 致谢名单（含已隐藏） |
 | POST | `/api/admin/thanks` | 新增致谢：`multipart/form-data`，字段 `name`、`note`、`link`、`sort`、可选 `avatar` 图片；也兼容纯 JSON |
 | PUT | `/api/admin/thanks/:id` | 修改致谢；带 `avatar` 文件则替换头像，`removeAvatar=1` 则移除 |
@@ -147,7 +150,7 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 ### 工程化
 
 - `better-sqlite3` 从 `"latest"` 改为 `^13.0.3`（`latest` 会让每次 `npm install` 装到不同版本）。
-- 新增 `test/api.test.js` 与 `test/storage.test.js`（`node:test`，零额外依赖）覆盖 26 个场景：排序、翻页、上传校验、后台鉴权与置顶/隐藏/删除、致谢名单增删改查与头像替换、图片格式识别、HTML 合法性回归、安全头。
+- 新增 `test/api.test.js` 与 `test/storage.test.js`（`node:test`，零额外依赖）覆盖 28 个场景：排序、翻页、上传校验、后台鉴权与置顶/隐藏/删除、致谢名单增删改查与头像替换、**评论管理（列表 / 隐藏后前台消失 / 删除 / 删帖连带清理）**、图片格式识别、HTML 合法性回归、安全头。
 - 新增 `.env.example`、`.gitignore`（`.env`、`data/`）、`npm run check`。
 
 ---
@@ -181,7 +184,8 @@ location / {
 
 ## 还可以继续做（按优先级）
 
-- [ ] 管理员回复 / 评论审核，评论举报
+- [x] **评论管理**：后台能看到全部评论、单独隐藏 / 删除，删帖时连带清理评论
+- [ ] 评论举报 / 管理员回复
 - [ ] 发帖前接入内容安全（敏感词 / 审核队列）
 - [ ] 图片压缩改到服务端（sharp），前端压缩在部分老安卓上不稳
 - [ ] 点赞去重改成服务端记录（目前只靠浏览器 localStorage，换设备可重复点）
