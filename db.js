@@ -117,9 +117,19 @@ const SCHEMA = [
      hidden     INTEGER NOT NULL DEFAULT 0,
      created_at INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS reports (
+     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+     target_type TEXT    NOT NULL,
+     target_id   INTEGER NOT NULL,
+     reason      TEXT    NOT NULL,
+     detail      TEXT    NOT NULL DEFAULT '',
+     status      INTEGER NOT NULL DEFAULT 0,
+     created_at  INTEGER NOT NULL
+   )`,
   `CREATE INDEX IF NOT EXISTS idx_posts_created  ON posts(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_comments_post  ON comments(post_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_thanks_order   ON thanks(sort DESC, id ASC)`
+  `CREATE INDEX IF NOT EXISTS idx_thanks_order   ON thanks(sort DESC, id ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC)`
 ];
 
 for (const statement of SCHEMA) {

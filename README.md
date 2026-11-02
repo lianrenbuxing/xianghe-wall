@@ -94,6 +94,9 @@ data/                本地模式运行时生成：wall.db + uploads/ + .secret�
 | GET | `/api/admin/comments` | 评论管理列表（含已隐藏），`filter=hidden` 只看已隐藏；带所属帖子信息 |
 | POST | `/api/admin/comments/:id/hide` | 隐藏 / 取消隐藏评论（软删除，前台计数同步变化） |
 | DELETE | `/api/admin/comments/:id` | 彻底删除一条评论 |
+| POST | `/api/reports` | 举报，JSON `{ "target_type": "post\|comment", "target_id": 1, "reason": "广告\|辱骂\|隐私\|其它", "detail": "可选" }`；限流 10 次/分钟，同内容 5 分钟内去重 |
+| GET | `/api/admin/reports` | 举报列表，默认只看待处理，`status=all` 看全部；每条带被举报内容摘要与「几人报过」 |
+| POST | `/api/admin/reports/:id/handle` | 手动标记某条举报为已处理 |
 | GET | `/api/admin/thanks` | 致谢名单（含已隐藏） |
 | POST | `/api/admin/thanks` | 新增致谢：`multipart/form-data`，字段 `name`、`note`、`link`、`sort`、可选 `avatar` 图片；也兼容纯 JSON |
 | PUT | `/api/admin/thanks/:id` | 修改致谢；带 `avatar` 文件则替换头像，`removeAvatar=1` 则移除 |
@@ -185,7 +188,7 @@ location / {
 ## 还可以继续做（按优先级）
 
 - [x] **评论管理**：后台能看到全部评论、单独隐藏 / 删除，删帖时连带清理评论
-- [ ] 评论举报 / 管理员回复
+- [x] **举报入口**：帖子和评论都能举报（广告 / 辱骂 / 隐私 / 其它），后台有「待处理」列表，隐藏或删除内容时自动结案
 - [ ] 发帖前接入内容安全（敏感词 / 审核队列）
 - [ ] 图片压缩改到服务端（sharp），前端压缩在部分老安卓上不稳
 - [ ] 点赞去重改成服务端记录（目前只靠浏览器 localStorage，换设备可重复点）

@@ -145,6 +145,12 @@ const toId = v => {
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
+// 内容被隐藏/删除后，把指向它的待处理举报一并结案
+const closeReports = (type, id) => db.run(
+  'UPDATE reports SET status = 1 WHERE status = 0 AND target_type = ? AND target_id = ?',
+  [type, id]
+);
+
 // 只接受 http/https 链接，挡掉 javascript: 之类的注入
 function safeHttpUrl(v) {
   const raw = clean(v, 300);
@@ -306,6 +312,41 @@ app.get('/api/thanks', h(async (req, res) => {
   res.json({ thanks: rows.map(mapThanks) });
 }));
 
+// ---------- 举报（前台提交） ----------
+
+const REPORT_REASONS = ['广告', '辱骂', '隐私', '其它'];
+
+// 举报一条帖子或评论：只记录，不自动下架，等管理员处理
+app.post('/api/reports',
+  rateLimit({ windowMs: 60_000, max: 10, key: 'report' }),
+  h(async (req, res) => {
+    const type = req.body?.target_type;
+    if (type !== 'post' && type !== 'comment') return res.status(400).json({ error: '参数有误' });
+
+    const id = toId(req.body?.target_id);
+    if (!id) return res.status(400).json({ error: '参数有误' });
+
+    const reason = REPORT_REASONS.includes(req.body?.reason) ? req.body.reason : '其它';
+    const detail = clean(req.body?.detail, 100);
+
+    const table = type === 'post' ? 'posts' : 'comments';
+    const target = await db.get(`SELECT id FROM ${table} WHERE id = ?`, [id]);
+    if (!target) return res.status(404).json({ error: '这条内容已经不见了' });
+
+    // 同一条内容 5 分钟内只记一次，避免有人狂点刷屏
+    const dup = await db.get(
+      'SELECT id FROM reports WHERE target_type = ? AND target_id = ? AND created_at > ?',
+      [type, id, Date.now() - 5 * 60_000]
+    );
+    if (dup) return res.json({ ok: true, duplicated: true });
+
+    await db.run(
+      'INSERT INTO reports (target_type, target_id, reason, detail, created_at) VALUES (?, ?, ?, ?, ?)',
+      [type, id, reason, detail, Date.now()]
+    );
+    res.json({ ok: true });
+  }));
+
 app.post('/api/admin/login',
   rateLimit({ windowMs: 10 * 60_000, max: 8, key: 'login' }),
   (req, res) => {
@@ -328,6 +369,7 @@ app.post('/api/admin/posts/:id/hide', adminOnly, h(async (req, res) => {
   if (!id) return res.status(400).json({ error: '参数有误' });
   await db.run('UPDATE posts SET hidden = 1 - hidden WHERE id = ?', [id]);
   const row = await db.get('SELECT hidden FROM posts WHERE id = ?', [id]);
+  if (row?.hidden) await closeReports('post', id);
   res.json({ hidden: !!row?.hidden });
 }));
 
@@ -351,6 +393,11 @@ app.delete('/api/admin/posts/:id', adminOnly, h(async (req, res) => {
     }
   }
   // 评论没有外键级联，删帖时手动清理，避免留下孤儿评论
+  await db.run(
+    `UPDATE reports SET status = 1 WHERE status = 0 AND target_type = 'comment'
+      AND target_id IN (SELECT id FROM comments WHERE post_id = ?)`, [id]
+  );
+  await closeReports('post', id);
   await db.run('DELETE FROM comments WHERE post_id = ?', [id]);
   await db.run('DELETE FROM posts WHERE id = ?', [id]);
   res.json({ ok: true });
@@ -397,13 +444,80 @@ app.post('/api/admin/comments/:id/hide', adminOnly, h(async (req, res) => {
   if (!info.changes) return res.status(404).json({ error: '这条评论不见了' });
 
   const row = await db.get('SELECT hidden FROM comments WHERE id = ?', [id]);
+  if (row?.hidden) await closeReports('comment', id);
   res.json({ hidden: !!row?.hidden });
 }));
 
 app.delete('/api/admin/comments/:id', adminOnly, h(async (req, res) => {
   const id = toId(req.params.id);
   if (!id) return res.status(400).json({ error: '参数有误' });
+  await closeReports('comment', id);
   await db.run('DELETE FROM comments WHERE id = ?', [id]);
+  res.json({ ok: true });
+}));
+
+// ---------- 举报（后台处理） ----------
+
+app.get('/api/admin/reports', adminOnly, h(async (req, res) => {
+  const showAll = req.query.status === 'all';
+
+  const rows = await db.all(`
+    SELECT r.*,
+           p.text AS post_text, p.name AS post_name, p.tag AS post_tag, p.hidden AS post_hidden,
+           c.text AS comment_text, c.name AS comment_name, c.hidden AS comment_hidden, c.post_id AS comment_post_id,
+           (SELECT COUNT(*) FROM reports r2
+             WHERE r2.target_type = r.target_type AND r2.target_id = r.target_id AND r2.status = 0) AS pending_count
+    FROM reports r
+    LEFT JOIN posts p    ON r.target_type = 'post'    AND p.id = r.target_id
+    LEFT JOIN comments c ON r.target_type = 'comment' AND c.id = r.target_id
+    ${showAll ? '' : 'WHERE r.status = 0'}
+    ORDER BY r.created_at DESC, r.id DESC
+    LIMIT 300
+  `);
+
+  const total = (await db.get('SELECT COUNT(*) AS n FROM reports')).n;
+  const pending = (await db.get('SELECT COUNT(*) AS n FROM reports WHERE status = 0')).n;
+
+  res.json({
+    total,
+    pending,
+    reports: rows.map(r => ({
+      id: r.id,
+      target_type: r.target_type,
+      target_id: r.target_id,
+      reason: r.reason,
+      detail: r.detail,
+      status: !!r.status,
+      created_at: r.created_at,
+      pending_count: r.pending_count,
+      target: r.target_type === 'post'
+        ? {
+            id: r.target_id,
+            text: r.post_text || '',
+            name: r.post_name || '',
+            tag: r.post_tag || '',
+            hidden: !!r.post_hidden,
+            exists: r.post_text !== null,
+            post_id: null
+          }
+        : {
+            id: r.target_id,
+            text: r.comment_text || '',
+            name: r.comment_name || '',
+            tag: '',
+            hidden: !!r.comment_hidden,
+            exists: r.comment_text !== null,
+            post_id: r.comment_post_id
+          }
+    }))
+  });
+}));
+
+app.post('/api/admin/reports/:id/handle', adminOnly, h(async (req, res) => {
+  const id = toId(req.params.id);
+  if (!id) return res.status(400).json({ error: '参数有误' });
+  const info = await db.run('UPDATE reports SET status = 1 WHERE id = ?', [id]);
+  if (!info.changes) return res.status(404).json({ error: '这条举报不见了' });
   res.json({ ok: true });
 }));
 

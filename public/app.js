@@ -139,6 +139,7 @@ function postHTML(p) {
       '<span class="heart">' + (isLiked ? '❤' : '🤍') + '</span> <span class="like-num">' + p.likes + '</span>' +
     '</button>' +
     '<button class="act" data-action="comment">💬 <span class="c-num">' + p.comment_count + '</span></button>' +
+    '<button class="act act-report" data-action="report" data-rt="post" data-rid="' + p.id + '">🚩 举报</button>' +
   '</div>' +
   '<div class="comments ' + (isOpen ? 'open' : '') + '">' +
     '<div class="c-list"><div class="loading-tip">加载中…</div></div>' +
@@ -219,11 +220,47 @@ async function loadComments(card, id) {
     list.innerHTML = data.comments.length
       ? data.comments.map(c =>
           '<div class="comment"><span class="c-name">' + escapeHtml(c.name) + '</span>' +
-          '<span class="c-text">' + escapeHtml(c.text) + '</span></div>'
+          '<span class="c-text">' + escapeHtml(c.text) + '</span>' +
+          '<button class="c-report" data-action="report" data-rt="comment" data-rid="' + c.id + '" title="举报这条评论">举报</button>' +
+          '</div>'
         ).join('')
       : '<div class="comment" style="color:var(--muted)">还没有回复，来抢沙发～</div>';
   } catch (e) {
     list.innerHTML = '<div class="comment" style="color:var(--muted)">评论加载失败</div>';
+  }
+}
+
+// ---------- 举报 ----------
+
+const REPORT_REASONS = ['广告', '辱骂', '隐私', '其它'];
+let reportTarget = null;
+
+function openReport(type, id) {
+  if (!type || !id) return;
+  reportTarget = { type, id };
+  el('reportModal').classList.add('show');
+}
+
+function closeReport() {
+  el('reportModal').classList.remove('show');
+  reportTarget = null;
+}
+
+async function submitReport(reason) {
+  if (!reportTarget) return;
+  const { type, id } = reportTarget;
+  try {
+    const data = await api('/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_type: type, target_id: id, reason })
+    });
+    closeReport();
+    toast(data && data.duplicated
+      ? '这条内容刚有人报过了，管理员会处理的 ~'
+      : '已收到举报，管理员会尽快来看 🙏');
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -418,6 +455,8 @@ function bind() {
       } catch (err) {
         toast(err.message);
       }
+    } else if (action === 'report') {
+      openReport(btn.dataset.rt, Number(btn.dataset.rid));
     }
   });
 
@@ -432,7 +471,25 @@ function bind() {
 
   el('lightbox').addEventListener('click', () => el('lightbox').classList.remove('show'));
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') el('lightbox').classList.remove('show');
+    if (e.key === 'Escape') {
+      el('lightbox').classList.remove('show');
+      if (reportTarget) closeReport();
+    }
+  });
+
+  // 举报弹窗：理由按钮按需生成，点空白处关闭
+  const reasonsBox = el('reportReasons');
+  REPORT_REASONS.forEach(reason => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'report-reason';
+    b.textContent = reason;
+    b.addEventListener('click', () => submitReport(reason));
+    reasonsBox.appendChild(b);
+  });
+  el('reportCancel').addEventListener('click', closeReport);
+  el('reportModal').addEventListener('click', e => {
+    if (e.target === el('reportModal')) closeReport();
   });
 
   el('themeBtn').addEventListener('click', () => {

@@ -53,6 +53,16 @@ const api = async (p, options) => {
   return { status: res.status, data };
 };
 
+let cachedAuth = null;
+async function authHeaders() {
+  // 登录接口有频率限制（10 分钟 8 次），整套测试共用一个 token
+  if (!cachedAuth) {
+    const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
+    cachedAuth = { Authorization: 'Bearer ' + login.data.token };
+  }
+  return cachedAuth;
+}
+
 const json = body => ({
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -207,8 +217,7 @@ test('管理后台鉴权：错误密码拒绝，正确密码签发 token', async
 });
 
 test('管理后台：置顶 / 隐藏 / 删除', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = { Authorization: 'Bearer ' + login.data.token };
+  const auth = await authHeaders();
 
   const created = await api('/posts', postForm({ text: '待管理的内容', tag: '日常' }));
   const id = created.data.post.id;
@@ -268,8 +277,7 @@ test('上传目录中的图片可访问且带 nosniff', async () => {
 // ---------- 评论管理 ----------
 
 test('评论管理：后台可见、隐藏后前台消失、删除', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = { Authorization: 'Bearer ' + login.data.token };
+  const auth = await authHeaders();
 
   const created = await api('/posts', postForm({ text: '评论管理测试帖', tag: '日常' }));
   const postId = created.data.post.id;
@@ -326,6 +334,77 @@ test('评论管理：未登录一律拒绝', async () => {
   assert.equal((await api('/admin/comments/1', { method: 'DELETE' })).status, 401);
 });
 
+// ---------- 举报 ----------
+
+test('举报：提交、自动去重、后台处理、隐藏后结案', async () => {
+  const auth = await authHeaders();
+
+  // 发布接口有频率限制，这里直接举报一条种子帖，测完再恢复显示
+  const feed = await api('/posts?limit=1');
+  const target = feed.data.posts[0];
+  const postId = target.id;
+
+  const r1 = await api('/reports', json({ target_type: 'post', target_id: postId, reason: '广告', detail: '在卖东西' }));
+  assert.equal(r1.status, 200);
+  assert.equal(r1.data.ok, true);
+
+  const r2 = await api('/reports', json({ target_type: 'post', target_id: postId, reason: '广告' }));
+  assert.equal(r2.data.duplicated, true, '5 分钟内重复举报同一条只记一次');
+
+  const list = await api('/admin/reports', { headers: auth });
+  assert.equal(list.status, 200);
+  const item = list.data.reports.find(r => r.target_type === 'post' && r.target_id === postId);
+  assert.ok(item, '后台应能看到这条举报');
+  assert.equal(item.reason, '广告');
+  assert.equal(item.detail, '在卖东西');
+  assert.equal(item.target.text, target.text);
+  assert.equal(item.status, false);
+
+  // 隐藏内容 → 相关举报自动结案
+  await api(`/admin/posts/${postId}/hide`, { method: 'POST', headers: auth });
+  const pending = await api('/admin/reports', { headers: auth });
+  assert.ok(!pending.data.reports.some(r => r.target_type === 'post' && r.target_id === postId),
+    '隐藏后不应再出现在待处理列表');
+
+  const all = await api('/admin/reports?status=all', { headers: auth });
+  const handled = all.data.reports.find(r => r.target_type === 'post' && r.target_id === postId);
+  assert.equal(handled.status, true, '隐藏后举报状态应变成已处理');
+
+  // 恢复显示，别影响后面的用例
+  await api(`/admin/posts/${postId}/hide`, { method: 'POST', headers: auth });
+});
+
+test('举报：评论被删后举报自动结案', async () => {
+  const auth = await authHeaders();
+
+  const feed = await api('/posts?limit=1');
+  const postId = feed.data.posts[0].id;
+  const made = await api(`/posts/${postId}/comments`, json({ text: '骂人的评论', name: '路人' }));
+  const cid = made.data.comment.id;
+
+  const rep = await api('/reports', json({ target_type: 'comment', target_id: cid, reason: '辱骂' }));
+  assert.equal(rep.status, 200);
+
+  const list = await api('/admin/reports', { headers: auth });
+  const item = list.data.reports.find(r => r.target_type === 'comment' && r.target_id === cid);
+  assert.ok(item, '后台应能看到评论举报');
+  assert.equal(item.target.post_id, postId, '评论举报要带所属帖子，方便跳转');
+
+  await api(`/admin/comments/${cid}`, { method: 'DELETE', headers: auth });
+  const after = await api('/admin/reports', { headers: auth });
+  assert.ok(!after.data.reports.some(r => r.target_type === 'comment' && r.target_id === cid),
+    '评论删掉后举报自动结案');
+});
+
+test('举报：未登录拒绝、参数校验', async () => {
+  assert.equal((await api('/admin/reports')).status, 401);
+  assert.equal((await api('/admin/reports/1/handle', { method: 'POST' })).status, 401);
+
+  assert.equal((await api('/reports', json({ target_type: 'user', target_id: 1 }))).status, 400);
+  assert.equal((await api('/reports', json({ target_type: 'post' }))).status, 400);
+  assert.equal((await api('/reports', json({ target_type: 'post', target_id: 999999, reason: '广告' }))).status, 404);
+});
+
 // ---------- 致谢名单 ----------
 
 test('致谢名单：公开接口返回种子条目', async () => {
@@ -339,11 +418,7 @@ test('致谢名单：公开接口返回种子条目', async () => {
 });
 
 test('致谢名单：后台新增 / 编辑 / 隐藏 / 删除', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = {
-    Authorization: 'Bearer ' + login.data.token,
-    'Content-Type': 'application/json'
-  };
+  const auth = { ...(await authHeaders()), 'Content-Type': 'application/json' };
 
   const created = await api('/admin/thanks', {
     method: 'POST',
@@ -380,11 +455,7 @@ test('致谢名单：后台新增 / 编辑 / 隐藏 / 删除', async () => {
 });
 
 test('致谢名单：非法链接、空名字、未登录都被拒绝', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = {
-    Authorization: 'Bearer ' + login.data.token,
-    'Content-Type': 'application/json'
-  };
+  const auth = { ...(await authHeaders()), 'Content-Type': 'application/json' };
 
   const badLink = await api('/admin/thanks', {
     method: 'POST',
@@ -404,8 +475,7 @@ test('致谢名单：非法链接、空名字、未登录都被拒绝', async ()
 });
 
 test('致谢头像：上传、替换、移除', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = { Authorization: 'Bearer ' + login.data.token };
+  const auth = await authHeaders();
 
   const fd = new FormData();
   fd.append('name', '头像测试');
@@ -452,8 +522,7 @@ test('致谢头像：上传、替换、移除', async () => {
 });
 
 test('致谢头像：非图片文件被拒绝', async () => {
-  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
-  const auth = { Authorization: 'Bearer ' + login.data.token };
+  const auth = await authHeaders();
 
   const fd = new FormData();
   fd.append('name', '坏头像');

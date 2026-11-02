@@ -65,6 +65,14 @@
   }
   .t-upload:hover{border-color:#ff5f8d;color:#ff5f8d;}
   .t-avatar-preview{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;}
+  .rp-item{border:1px solid #f1e8ef;border-radius:12px;padding:11px 12px;margin-bottom:8px;}
+  .rp-item.done{opacity:.55;background:#faf7fb;}
+  .rp-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:#8a8394;margin-bottom:6px;}
+  .rp-reason{background:#ffe8ee;color:#e03060;border-radius:20px;padding:2px 9px;font-size:11.5px;font-weight:600;}
+  .rp-text{font-size:13.5px;line-height:1.65;color:#3b3444;word-break:break-word;}
+  .rp-from{font-size:12px;color:#8a8394;margin-top:3px;}
+  .rp-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;}
+  .rp-acts button{padding:6px 11px;font-size:12.5px;border-radius:8px;}
 </style>
 </head>
 <body>
@@ -91,6 +99,21 @@
       </div>
     </div>
     <div id="list"></div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+        <span style="font-size:14px;font-weight:600;">🚩 举报处理</span>
+        <span class="badge" id="rpStat">加载中…</span>
+        <span style="margin-left:auto;display:flex;gap:6px;">
+          <button class="ghost on" data-rfilter="pending">待处理</button>
+          <button class="ghost" data-rfilter="all">全部</button>
+        </span>
+      </div>
+      <div style="font-size:12.5px;color:#8a8394;margin-bottom:12px;">
+        点「隐藏」或「删除」会自动把这条内容的相关举报一起结案
+      </div>
+      <div id="rpList" style="font-size:13px;color:#8a8394;">加载中…</div>
+    </div>
 
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
@@ -192,7 +215,7 @@ function logout(){
 async function enterPanel(){
   $('loginCard').classList.add('hide');
   $('panel').classList.remove('hide');
-  await Promise.all([loadStats(), loadList(), loadThanks(), loadComments()]);
+  await Promise.all([loadStats(), loadList(), loadThanks(), loadComments(), loadReports()]);
 }
 
 async function loadStats(){
@@ -305,6 +328,87 @@ $('cmList').addEventListener('click', async e => {
       toast(hidden ? '已隐藏' : '已恢复显示');
     }
     await Promise.all([loadComments(), loadList(), loadStats()]);
+  }catch(err){ toast(err.message); }
+});
+
+// ---------- 举报处理 ----------
+let rpFilter = 'pending';
+let rpData = [];
+
+async function loadReports(){
+  try{
+    const data = await api('/admin/reports' + (rpFilter === 'all' ? '?status=all' : ''));
+    rpData = data.reports;
+    $('rpStat').textContent = `待处理 ${data.pending} · 共 ${data.total} 条`;
+
+    if (!rpData.length){
+      $('rpList').textContent = rpFilter === 'all' ? '还没有任何举报' : '没有待处理的举报 🎉';
+      return;
+    }
+
+    $('rpList').innerHTML = rpData.map((r, i) => {
+      const t = r.target;
+      const label = r.target_type === 'post' ? '帖子' : '评论';
+      const where = r.target_type === 'comment' && t.post_id ? ` · 属于帖子 #${t.post_id}` : '';
+      const state = !t.exists ? '已删除' : (t.hidden ? '已隐藏' : '在线');
+      const snippet = t.text.length > 90 ? t.text.slice(0, 90) + '…' : t.text;
+      const actions = [];
+      if (t.exists){
+        actions.push(`<button class="ghost" data-ract="hide" data-i="${i}">${t.hidden ? '恢复显示' : '隐藏内容'}</button>`);
+        actions.push(`<button class="danger" data-ract="del" data-i="${i}">删除内容</button>`);
+      }
+      if (!r.status) actions.push(`<button class="ghost" data-ract="handled" data-i="${i}">标记已处理</button>`);
+
+      return `
+      <div class="rp-item ${r.status ? 'done' : ''}">
+        <div class="rp-head">
+          <span class="rp-reason">${esc(r.reason)}</span>
+          <span>${label} #${t.id}${where} · ${state} · ${r.pending_count} 人报过 · ${fmt(r.created_at)}</span>
+        </div>
+        <div class="rp-text">${t.exists ? esc(snippet) : '（内容已被删除）'}</div>
+        <div class="rp-from">
+          ${esc(t.name || '匿名')}${r.detail ? ' · 补充：' + esc(r.detail) : ''}
+          ${r.status ? ' · <span style="color:#8a8394;">已处理</span>' : ''}
+        </div>
+        ${actions.length ? `<div class="rp-acts">${actions.join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+  }catch(e){
+    $('rpList').textContent = e.message;
+  }
+}
+
+document.querySelectorAll('[data-rfilter]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    rpFilter = btn.dataset.rfilter;
+    document.querySelectorAll('[data-rfilter]').forEach(b => b.classList.toggle('on', b === btn));
+    loadReports();
+  });
+});
+
+$('rpList').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-ract]');
+  if (!btn) return;
+  const r = rpData[Number(btn.dataset.i)];
+  if (!r) return;
+
+  const isPost = r.target_type === 'post';
+  const base = isPost ? '/admin/posts/' : '/admin/comments/';
+  const act = btn.dataset.ract;
+
+  try{
+    if (act === 'hide'){
+      const { hidden } = await api(base + r.target_id + '/hide', { method: 'POST' });
+      toast(hidden ? '已隐藏，相关举报已结案' : '已恢复显示');
+    } else if (act === 'del'){
+      if (!confirm(`确定彻底删除这条${isPost ? '帖子' : '评论'}吗？删除后无法恢复。`)) return;
+      await api(base + r.target_id, { method: 'DELETE' });
+      toast('已删除');
+    } else if (act === 'handled'){
+      await api('/admin/reports/' + r.id + '/handle', { method: 'POST' });
+      toast('已标记为处理完成');
+    }
+    await Promise.all([loadReports(), loadComments(), loadList(), loadStats()]);
   }catch(err){ toast(err.message); }
 });
 
