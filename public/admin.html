@@ -25,6 +25,7 @@
   }
   button.ghost{background:#f2edf5;color:#5a5266;font-weight:500;}
   button.ghost:hover{background:#eae2f0;}
+  button.ghost.on{background:#ffe8ee;color:#e03060;font-weight:600;}
   button.danger{background:#ffe8ee;color:#e03060;font-weight:600;}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
   .post{border:1px solid #f1e8ef;border-radius:14px;padding:14px;margin-bottom:12px;}
@@ -90,6 +91,21 @@
       </div>
     </div>
     <div id="list"></div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+        <span style="font-size:14px;font-weight:600;">💬 评论管理</span>
+        <span class="badge" id="cmStat">加载中…</span>
+        <span style="margin-left:auto;display:flex;gap:6px;">
+          <button class="ghost on" data-cfilter="all">全部</button>
+          <button class="ghost" data-cfilter="hidden">只看已隐藏</button>
+        </span>
+      </div>
+      <div style="font-size:12.5px;color:#8a8394;margin-bottom:12px;">
+        隐藏 = 前台看不到这条评论、帖子上的评论数也会少一条，但数据保留
+      </div>
+      <div id="cmList" style="font-size:13px;color:#8a8394;">加载中…</div>
+    </div>
 
     <div class="card">
       <div style="font-size:14px;font-weight:600;margin-bottom:4px;">💝 致谢名单</div>
@@ -176,7 +192,7 @@ function logout(){
 async function enterPanel(){
   $('loginCard').classList.add('hide');
   $('panel').classList.remove('hide');
-  await Promise.all([loadStats(), loadList(), loadThanks()]);
+  await Promise.all([loadStats(), loadList(), loadThanks(), loadComments()]);
 }
 
 async function loadStats(){
@@ -225,6 +241,72 @@ async function loadList(){
     $('list').innerHTML = '<div class="card">' + esc(e.message) + '</div>';
   }
 }
+
+// ---------- 评论管理 ----------
+let cmFilter = 'all';
+
+async function loadComments(){
+  try{
+    const { comments, total, hidden } = await api('/admin/comments' + (cmFilter === 'hidden' ? '?filter=hidden' : ''));
+    $('cmStat').textContent = `共 ${total} 条 · 已隐藏 ${hidden} 条`;
+
+    if (!comments.length){
+      $('cmList').textContent = cmFilter === 'hidden' ? '没有已隐藏的评论' : '还没有任何评论';
+      return;
+    }
+
+    $('cmList').innerHTML = comments.map(c => {
+      const snippet = c.post.text.length > 40 ? c.post.text.slice(0, 40) + '…' : c.post.text;
+      return `
+      <div class="t-item ${c.hidden ? 'hidden' : ''}" data-cid="${c.id}">
+        <div style="min-width:0;flex:1 1 240px;">
+          <div style="font-weight:600;font-size:13.5px;">
+            ${esc(c.name)}
+            <span style="color:#8a8394;font-weight:400;font-size:12px;">${fmt(c.created_at)}</span>
+            ${c.hidden ? '<span class="badge dark">已隐藏</span>' : ''}
+          </div>
+          <div style="font-size:13.5px;line-height:1.65;word-break:break-word;">${esc(c.text)}</div>
+          <div style="color:#8a8394;font-size:12px;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            来自 #${c.post.id} ${esc(c.post.name || '匿名')}：${esc(snippet)}
+            ${c.post.hidden ? '<span class="badge dark">帖子已隐藏</span>' : ''}
+          </div>
+        </div>
+        <span class="t-actions">
+          <button class="ghost" data-cact="hide">${c.hidden ? '显示' : '隐藏'}</button>
+          <button class="danger" data-cact="del">删除</button>
+        </span>
+      </div>`;
+    }).join('');
+  }catch(e){
+    $('cmList').textContent = e.message;
+  }
+}
+
+document.querySelectorAll('[data-cfilter]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    cmFilter = btn.dataset.cfilter;
+    document.querySelectorAll('[data-cfilter]').forEach(b => b.classList.toggle('on', b === btn));
+    loadComments();
+  });
+});
+
+$('cmList').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-cact]');
+  if (!btn) return;
+  const id = btn.closest('.t-item').dataset.cid;
+
+  try{
+    if (btn.dataset.cact === 'del'){
+      if (!confirm('确定删除这条评论吗？删除后无法恢复。')) return;
+      await api('/admin/comments/' + id, { method: 'DELETE' });
+      toast('已删除');
+    } else {
+      const { hidden } = await api('/admin/comments/' + id + '/hide', { method: 'POST' });
+      toast(hidden ? '已隐藏' : '已恢复显示');
+    }
+    await Promise.all([loadComments(), loadList(), loadStats()]);
+  }catch(err){ toast(err.message); }
+});
 
 // ---------- 致谢名单 ----------
 let thanksCache = [];

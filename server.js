@@ -350,7 +350,60 @@ app.delete('/api/admin/posts/:id', adminOnly, h(async (req, res) => {
       await deleteImage(img.key).catch(() => {});
     }
   }
+  // 评论没有外键级联，删帖时手动清理，避免留下孤儿评论
+  await db.run('DELETE FROM comments WHERE post_id = ?', [id]);
   await db.run('DELETE FROM posts WHERE id = ?', [id]);
+  res.json({ ok: true });
+}));
+
+// ---------- 评论管理（后台） ----------
+
+app.get('/api/admin/comments', adminOnly, h(async (req, res) => {
+  const onlyHidden = req.query.filter === 'hidden';
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+
+  const rows = await db.all(`
+    SELECT c.*, p.name AS post_name, p.text AS post_text, p.hidden AS post_hidden
+    FROM comments c LEFT JOIN posts p ON p.id = c.post_id
+    ${onlyHidden ? 'WHERE c.hidden = 1' : ''}
+    ORDER BY c.created_at DESC, c.id DESC
+    LIMIT ?
+  `, [limit]);
+
+  const total = (await db.get('SELECT COUNT(*) AS n FROM comments')).n;
+  const hidden = (await db.get('SELECT COUNT(*) AS n FROM comments WHERE hidden = 1')).n;
+
+  res.json({
+    total,
+    hidden,
+    comments: rows.map(r => ({
+      ...mapComment(r),
+      post: {
+        id: r.post_id,
+        name: r.post_name || '',
+        text: r.post_text || '',
+        hidden: !!r.post_hidden
+      }
+    }))
+  });
+}));
+
+// 隐藏 / 取消隐藏一条评论：只影响前台可见性和计数，数据保留
+app.post('/api/admin/comments/:id/hide', adminOnly, h(async (req, res) => {
+  const id = toId(req.params.id);
+  if (!id) return res.status(400).json({ error: '参数有误' });
+
+  const info = await db.run('UPDATE comments SET hidden = 1 - hidden WHERE id = ?', [id]);
+  if (!info.changes) return res.status(404).json({ error: '这条评论不见了' });
+
+  const row = await db.get('SELECT hidden FROM comments WHERE id = ?', [id]);
+  res.json({ hidden: !!row?.hidden });
+}));
+
+app.delete('/api/admin/comments/:id', adminOnly, h(async (req, res) => {
+  const id = toId(req.params.id);
+  if (!id) return res.status(400).json({ error: '参数有误' });
+  await db.run('DELETE FROM comments WHERE id = ?', [id]);
   res.json({ ok: true });
 }));
 

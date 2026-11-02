@@ -207,6 +207,7 @@ export function mapComment(row) {
     post_id: row.post_id,
     name: row.name,
     text: row.text,
+    hidden: !!row.hidden,
     created_at: row.created_at
   };
 }

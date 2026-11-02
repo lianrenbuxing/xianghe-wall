@@ -75,9 +75,16 @@ before(async () => {
   base = await startServer(dataDir);
 });
 
-after(() => {
-  if (child && !child.killed) child.kill();
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+after(async () => {
+  // Windows 下进程没完全退出时 SQLite 文件还被占用，直接删目录会 EPERM
+  if (child && !child.killed) {
+    await new Promise(resolve => {
+      const timer = setTimeout(resolve, 5000);
+      child.once('exit', () => { clearTimeout(timer); resolve(); });
+      child.kill();
+    });
+  }
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
 });
 
 test('健康检查', async () => {
@@ -256,6 +263,67 @@ test('上传目录中的图片可访问且带 nosniff', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(res.headers.get('content-type'), 'image/png');
+});
+
+// ---------- 评论管理 ----------
+
+test('评论管理：后台可见、隐藏后前台消失、删除', async () => {
+  const login = await api('/admin/login', json({ password: ADMIN_PASSWORD }));
+  const auth = { Authorization: 'Bearer ' + login.data.token };
+
+  const created = await api('/posts', postForm({ text: '评论管理测试帖', tag: '日常' }));
+  const postId = created.data.post.id;
+
+  const made = await api(`/posts/${postId}/comments`, json({ text: '要被管起来的评论', name: '捣乱的人' }));
+  const cid = made.data.comment.id;
+  const made2 = await api(`/posts/${postId}/comments`, json({ text: '第二条评论' }));
+  const cid2 = made2.data.comment.id;
+
+  // 后台列表能看到评论，并带上所属帖子
+  const list = await api('/admin/comments', { headers: auth });
+  assert.equal(list.status, 200);
+  const target = list.data.comments.find(x => x.id === cid);
+  assert.ok(target, '后台应能看到这条评论');
+  assert.equal(target.post.id, postId, '评论要带所属帖子信息');
+  assert.equal(target.hidden, false);
+
+  // 隐藏：前台不可见，帖子评论数减一
+  const hid = await api(`/admin/comments/${cid}/hide`, { method: 'POST', headers: auth });
+  assert.equal(hid.data.hidden, true);
+
+  const pub = await api(`/posts/${postId}/comments`);
+  assert.ok(!pub.data.comments.some(x => x.id === cid), '隐藏后前台不可见');
+
+  const afterHide = await api('/posts?limit=30');
+  assert.equal(afterHide.data.posts.find(p => p.id === postId).comment_count, 1);
+
+  // 只看已隐藏
+  const onlyHidden = await api('/admin/comments?filter=hidden', { headers: auth });
+  assert.ok(onlyHidden.data.comments.some(x => x.id === cid), 'filter=hidden 应包含它');
+  assert.ok(!onlyHidden.data.comments.some(x => x.id === cid2), '未隐藏的不应出现在过滤结果里');
+
+  // 取消隐藏
+  const back = await api(`/admin/comments/${cid}/hide`, { method: 'POST', headers: auth });
+  assert.equal(back.data.hidden, false);
+  const backPub = await api(`/posts/${postId}/comments`);
+  assert.ok(backPub.data.comments.some(x => x.id === cid), '取消隐藏后前台可见');
+
+  // 删除
+  const del = await api(`/admin/comments/${cid}`, { method: 'DELETE', headers: auth });
+  assert.equal(del.status, 200);
+  const list2 = await api('/admin/comments', { headers: auth });
+  assert.ok(!list2.data.comments.some(x => x.id === cid), '删除后后台也没有');
+
+  // 删帖时连带清理评论，避免孤儿数据
+  await api(`/admin/posts/${postId}`, { method: 'DELETE', headers: auth });
+  const list3 = await api('/admin/comments', { headers: auth });
+  assert.ok(!list3.data.comments.some(x => x.id === cid2), '删帖后其评论应一起清掉');
+});
+
+test('评论管理：未登录一律拒绝', async () => {
+  assert.equal((await api('/admin/comments')).status, 401);
+  assert.equal((await api('/admin/comments/1/hide', { method: 'POST' })).status, 401);
+  assert.equal((await api('/admin/comments/1', { method: 'DELETE' })).status, 401);
 });
 
 // ---------- 致谢名单 ----------
